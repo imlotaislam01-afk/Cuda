@@ -64,3 +64,25 @@ def test_reconciliation_worker_records_unexpected_failure():
         await service.stop()
 
     asyncio.run(scenario())
+
+
+def test_reconciliation_worker_runs_multiple_bounded_cycles():
+    async def scenario():
+        coordinator = ExecutionCoordinator(PaperExecutionAdapter())
+        service = ReconciliationService(coordinator, interval_seconds=0.01)
+        calls = 0
+        original = service.reconcile_once
+
+        async def counted_reconcile():
+            nonlocal calls
+            calls += 1
+            return await original()
+
+        service.reconcile_once = counted_reconcile
+        await service.start()
+        await asyncio.sleep(0.035)
+        await service.stop()
+        assert calls >= 2
+        assert service._task is None
+
+    asyncio.run(scenario())

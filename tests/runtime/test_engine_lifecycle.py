@@ -215,6 +215,54 @@ def test_engine_supervisor_runs_owned_context_provider_end_to_end(tmp_path):
     asyncio.run(scenario())
 
 
+def test_engine_supervisor_degrades_when_running_reconciliation_becomes_unhealthy():
+    async def scenario():
+        class Reconciliation:
+            running = False
+            failed = False
+            healthy = True
+            calls = 0
+
+            async def start(self):
+                self.running = True
+                return True
+
+            async def reconcile_once(self):
+                self.calls += 1
+                self.healthy = self.calls == 1
+                return self.healthy
+
+            async def stop(self):
+                self.running = False
+                return True
+
+        class Market:
+            running = False
+            ready = True
+
+            async def start(self):
+                self.running = True
+                return True
+
+            async def stop(self):
+                self.running = False
+                return True
+
+        reconciliation = Reconciliation()
+        supervisor = EngineSupervisor(
+            config=RuntimeConfig(),
+            market_data=Market(),
+            reconciliation_service=reconciliation,
+            context_provider=lambda: None,
+        )
+
+        assert await supervisor.run_forever(poll_interval=0.01) is True
+        assert supervisor.state is LifecycleState.STOPPED
+        assert supervisor.health.execution_ok is False
+
+    asyncio.run(scenario())
+
+
 def test_engine_supervisor_owns_signal_handler_lifecycle():
     async def scenario():
         events = []
