@@ -33,6 +33,7 @@ class EngineSupervisor:
         execution_consumer: Any | None = None,
         reconciliation_service: Any | None = None,
         dashboard: Any | None = None,
+        shutdown_manager: Any | None = None,
     ) -> None:
         self.config = config or RuntimeConfig()
         self.state = LifecycleState.STARTING
@@ -45,6 +46,7 @@ class EngineSupervisor:
         self.execution_consumer = execution_consumer
         self.reconciliation_service = reconciliation_service
         self.dashboard = dashboard
+        self.shutdown_manager = shutdown_manager
         self._runtime_components = (
             ("market_data", self.market_data),
             ("brain", self.brain_loop),
@@ -125,6 +127,8 @@ class EngineSupervisor:
             self.state = LifecycleState.RUNNING
             self.health.lifecycle_state = self.state
             self._record_lifecycle("RUNTIME_RUNNING", {"state": self.state.value})
+            if self.shutdown_manager is not None:
+                self.shutdown_manager.install_signal_handlers(self.stop_runtime)
             self._record_lifecycle("RUNTIME_COMPONENTS_READY", {"state": self.state.value})
             return True
         except Exception as exc:
@@ -180,6 +184,8 @@ class EngineSupervisor:
                 await component.stop()
             except Exception:
                 self.health.execution_ok = False
+        if self.shutdown_manager is not None:
+            self.shutdown_manager.remove_signal_handlers()
         self.coordinator.recovery_state = "RECOVERY"
         self.ledger.record_recovery_event("RECOVERY", "runtime stopped", payload={}, event_time=0.0)
         self.state = LifecycleState.STOPPED

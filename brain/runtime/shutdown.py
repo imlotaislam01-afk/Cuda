@@ -70,3 +70,8 @@ class ShutdownManager:
         if task is not None:
             await task
         return not self.failed
+
+    def remove_signal_handlers(self) -> None:
+        for loop, event in self._signal_handlers:
+            loop.remove_signal_handler(event)
+        self._signal_handlers.clear()

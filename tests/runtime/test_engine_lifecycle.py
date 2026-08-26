@@ -24,6 +24,18 @@ class RuntimeComponent:
         self.running = True
         return True
 
+
+class ShutdownComponent:
+    def __init__(self, events):
+        self.events = events
+
+    def install_signal_handlers(self, callback):
+        self.events.append("signals:install")
+        self.callback = callback
+
+    def remove_signal_handlers(self):
+        self.events.append("signals:remove")
+
     async def stop(self):
         self.events.append(f"stop:{self.name}")
         self.running = False
@@ -140,5 +152,18 @@ def test_engine_supervisor_runs_brain_to_execution_consumer_until_shutdown(tmp_p
         assert execution.outcomes[0].status == "SUBMITTED"
         assert supervisor.state is LifecycleState.STOPPED
         assert events == ["start:market", "start:reconciliation", "start:dashboard", "stop:dashboard", "stop:reconciliation", "stop:market"]
+
+    asyncio.run(scenario())
+
+
+def test_engine_supervisor_owns_signal_handler_lifecycle():
+    async def scenario():
+        events = []
+        shutdown = ShutdownComponent(events)
+        supervisor = EngineSupervisor(config=RuntimeConfig(), shutdown_manager=shutdown)
+        assert await supervisor.start_runtime() is True
+        assert events == ["signals:install"]
+        await supervisor.stop_runtime()
+        assert events == ["signals:install", "signals:remove"]
 
     asyncio.run(scenario())
