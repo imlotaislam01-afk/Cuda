@@ -177,6 +177,44 @@ def test_engine_supervisor_runs_brain_to_execution_consumer_until_shutdown(tmp_p
     asyncio.run(scenario())
 
 
+def test_engine_supervisor_runs_owned_context_provider_end_to_end(tmp_path):
+    async def scenario():
+        context = SimpleNamespace(symbol="BTCUSDT", event_time=1.0)
+        pipeline = SimpleNamespace(run=lambda value: SimpleNamespace(context=value, intent=intent()))
+        brain = BrainLoop(pipeline, clock=lambda: 1.0)
+        ledger = ExecutionLedger(str(tmp_path / "owned-runtime.sqlite3"))
+        coordinator = ExecutionCoordinator(PaperExecutionAdapter(), ExecutionConfig(), ledger)
+        execution = ExecutionConsumer(coordinator)
+        market = RuntimeComponent("market", [])
+        reconciliation = RuntimeComponent("reconciliation", [])
+        provider_calls = 0
+
+        def provide_context():
+            nonlocal provider_calls
+            provider_calls += 1
+            if provider_calls >= 3:
+                supervisor.state = LifecycleState.STOPPING
+                return None
+            return context
+
+        supervisor = EngineSupervisor(
+            config=RuntimeConfig(),
+            ledger=ledger,
+            coordinator=coordinator,
+            market_data=market,
+            brain_loop=brain,
+            execution_consumer=execution,
+            reconciliation_service=reconciliation,
+            context_provider=provide_context,
+        )
+
+        assert await supervisor.run_forever() is True
+        assert provider_calls >= 3
+        assert len(execution.outcomes) == 1
+
+    asyncio.run(scenario())
+
+
 def test_engine_supervisor_owns_signal_handler_lifecycle():
     async def scenario():
         events = []

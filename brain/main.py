@@ -28,6 +28,9 @@ def build_runtime(runtime: RuntimeConfig):
     if token:
         from brain.dashboard import create_http_server
         dashboard = DashboardManager(create_http_server(lambda: None, token=token))
+    def context_provider():
+        return LiveSnapshotContextAdapter(snapshot).build(calculation_time=time.time())
+
     supervisor = EngineSupervisor(
         config=runtime,
         ledger=ledger,
@@ -36,12 +39,10 @@ def build_runtime(runtime: RuntimeConfig):
         brain_loop=brain_loop,
         execution_consumer=execution_consumer,
         reconciliation_service=reconciliation,
+        context_provider=context_provider,
         dashboard=dashboard,
         shutdown_manager=ShutdownManager(),
     )
-
-    def context_provider():
-        return LiveSnapshotContextAdapter(snapshot).build(calculation_time=time.time())
 
     return supervisor, context_provider
 
@@ -49,7 +50,7 @@ def build_runtime(runtime: RuntimeConfig):
 def main() -> None:
     runtime = RuntimeConfig.from_env()
     supervisor, context_provider = build_runtime(runtime)
-    started = asyncio.run(supervisor.run_forever(context_provider))
+    started = asyncio.run(supervisor.run_forever())
 
     print()
     print("========================================")

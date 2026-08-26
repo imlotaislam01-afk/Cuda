@@ -63,6 +63,7 @@ class EngineSupervisor:
         brain_loop: Any | None = None,
         execution_consumer: Any | None = None,
         reconciliation_service: Any | None = None,
+        context_provider: Any | None = None,
         dashboard: Any | None = None,
         shutdown_manager: Any | None = None,
     ) -> None:
@@ -91,6 +92,7 @@ class EngineSupervisor:
                 interval_seconds=self.config.scanner_interval_seconds,
             )
         self.reconciliation_service = reconciliation_service
+        self.context_provider = context_provider
 
         if shutdown_manager is None:
             shutdown_manager = ShutdownManager()
@@ -219,10 +221,13 @@ class EngineSupervisor:
     def _component_failed(self, component: Any) -> bool:
         return bool(getattr(component, "failed", False))
 
-    async def run_forever(self, context_provider: Any, *, poll_interval: float = 0.1) -> bool:
+    async def run_forever(self, context_provider: Any | None = None, *, poll_interval: float = 0.1) -> bool:
         """Run the supervised context-to-intent loop until stopped or degraded."""
         if poll_interval <= 0:
             raise ValueError("Runtime poll interval must be positive")
+        context_provider = context_provider or self.context_provider
+        if context_provider is None:
+            raise ValueError("EngineSupervisor requires a context provider")
         if not await self.start_runtime():
             return False
         try:

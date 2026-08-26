@@ -4,7 +4,7 @@ from config.runtime import RuntimeConfig
 
 
 def test_main_orchestration_runs(capsys, monkeypatch):
-    async def fake_run_forever(self, context_provider):
+    async def fake_run_forever(self, context_provider=None):
         self.state = LifecycleState.STOPPED
         return True
 
