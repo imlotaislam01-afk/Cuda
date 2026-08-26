@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 from math import isfinite
+from threading import Lock
 from typing import Any
 
 from .adapter import ExchangeExecutionAdapter
@@ -29,6 +30,7 @@ class ExecutionCoordinator:
         self.adapter = adapter
         self.config = config or ExecutionConfig()
         self._requests: dict[str, str] = {}
+        self._submission_lock = Lock()
         self.ledger = ledger or ExecutionLedger(self.config.state_db_path)
         self.protection = ProtectionManager()
         self.last_transport_error: ExecutionTransportError | None = None
@@ -47,6 +49,10 @@ class ExecutionCoordinator:
         return True
 
     def submit_intent(self, intent, *, as_of: float | None = None, now: float = 0.0) -> ExecutionOutcome:
+        with self._submission_lock:
+            return self._submit_intent(intent, as_of=as_of, now=now)
+
+    def _submit_intent(self, intent, *, as_of: float | None = None, now: float = 0.0) -> ExecutionOutcome:
         if not self._check_recovery_gate(symbol=intent.symbol, now=now):
             return ExecutionOutcome("REJECTED", reason="RECOVERY_REQUIRED")
         if self.ledger.kill_switch_state == "KILLED":
