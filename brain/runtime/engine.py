@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import os
+from types import SimpleNamespace
 from typing import Any
 
+from brain.dashboard import create_http_server
 from brain.execution import (
     ExecutionConfig,
     ExecutionCoordinator,
@@ -11,12 +14,40 @@ from brain.execution import (
     ExecutionMode,
     PaperExecutionAdapter,
 )
-
+from brain.pipeline import ApexBrainPipeline
 from config.runtime import RuntimeConfig, RuntimeMode
 
+from .brain_loop import BrainLoop
+from .dashboard import DashboardManager
+from .execution_consumer import ExecutionConsumer
 from .health import RuntimeHealth
 from .lifecycle import LifecycleState
+from .market_data import MarketDataManager
 from .recovery import RecoveryManager
+from .reconciliation_service import ReconciliationService
+from .shutdown import ShutdownManager
+
+
+class _NoopMarketFeed:
+    def __init__(self) -> None:
+        self.data = SimpleNamespace(
+            quality=lambda **kwargs: ("DATA_VALID", "ok"),
+            continuity_status="HEALTHY",
+            last_event_time=0.0,
+            last_update=0.0,
+        )
+        self.running = False
+
+    async def run(self) -> None:
+        self.running = True
+        try:
+            while self.running:
+                await asyncio.sleep(0.1)
+        finally:
+            self.running = False
+
+    def stop(self) -> None:
+        self.running = False
 
 
 class EngineSupervisor:
@@ -41,12 +72,36 @@ class EngineSupervisor:
         self.ledger = ledger or ExecutionLedger(self.config.state_db_path)
         self.coordinator = coordinator or self._build_coordinator()
         self.recovery_manager = RecoveryManager(self.ledger, self.coordinator.adapter)
+
+        if market_data is None:
+            market_data = MarketDataManager(_NoopMarketFeed())
         self.market_data = market_data
+
+        if brain_loop is None:
+            brain_loop = BrainLoop(ApexBrainPipeline())
         self.brain_loop = brain_loop
+
+        if execution_consumer is None:
+            execution_consumer = ExecutionConsumer(self.coordinator)
         self.execution_consumer = execution_consumer
+
+        if reconciliation_service is None:
+            reconciliation_service = ReconciliationService(
+                self.coordinator,
+                interval_seconds=self.config.scanner_interval_seconds,
+            )
         self.reconciliation_service = reconciliation_service
-        self.dashboard = dashboard
+
+        if shutdown_manager is None:
+            shutdown_manager = ShutdownManager()
         self.shutdown_manager = shutdown_manager
+
+        if dashboard is None:
+            token = os.environ.get("APEX_DASHBOARD_TOKEN")
+            if token:
+                dashboard = DashboardManager(create_http_server(lambda: None, token=token))
+        self.dashboard = dashboard
+
         self._runtime_components = (
             ("market_data", self.market_data),
             ("brain", self.brain_loop),

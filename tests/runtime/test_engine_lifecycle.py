@@ -47,6 +47,22 @@ class FailedReconciliationComponent(RuntimeComponent):
         return False
 
 
+def test_engine_supervisor_creates_and_owns_core_runtime_subsystems():
+    supervisor = EngineSupervisor(config=RuntimeConfig())
+
+    assert supervisor.config is not None
+    assert supervisor.ledger is not None
+    assert supervisor.coordinator is not None
+    assert supervisor.recovery_manager is not None
+    assert supervisor.market_data is not None
+    assert supervisor.brain_loop is not None
+    assert supervisor.execution_consumer is not None
+    assert supervisor.reconciliation_service is not None
+    assert supervisor.shutdown_manager is not None
+    assert supervisor.dashboard is None or hasattr(supervisor.dashboard, "start")
+    assert [name for name, _ in supervisor._runtime_components] == ["market_data", "brain", "execution", "reconciliation", "dashboard"]
+
+
 def test_engine_supervisor_starts_in_paper_mode_and_reports_runtime_state():
     config = RuntimeConfig(mode=ExecutionMode.PAPER)
     supervisor = EngineSupervisor(config=config)
