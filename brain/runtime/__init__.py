@@ -1,5 +1,6 @@
 from .engine import EngineSupervisor
 from .health import RuntimeHealth
+from .brain_loop import BrainLoop
 from .lifecycle import LifecycleState
 from .market_data import MarketDataManager
 from .recovery import RecoveryManager
@@ -12,4 +13,5 @@ __all__ = [
     "MarketDataManager",
     "RecoveryManager",
     "ShutdownManager",
+    "BrainLoop",
 ]
