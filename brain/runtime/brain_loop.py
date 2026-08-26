@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import time
 from typing import Any, Callable
 
@@ -9,7 +10,7 @@ class BrainLoop:
     """Bounded canonical-context consumer that never submits exchange orders."""
 
     def __init__(self, pipeline: Any, *, max_queue_size: int = 64, max_results: int = 1000, stale_after: float = 30.0,
-                 clock: Callable[[], float] | None = None) -> None:
+                 clock: Callable[[], float] | None = None, result_handler: Callable[[Any], Any] | None = None) -> None:
         if max_queue_size <= 0 or max_results <= 0 or stale_after < 0:
             raise ValueError("Brain loop limits must be positive")
         self.pipeline = pipeline
@@ -17,6 +18,7 @@ class BrainLoop:
         self.max_results = max_results
         self.stale_after = stale_after
         self.clock = clock or time.time
+        self.result_handler = result_handler
         self.running = False
         self.failed = False
         self.last_error: BaseException | None = None
@@ -57,9 +59,14 @@ class BrainLoop:
         while self.running:
             context = await self.queue.get()
             try:
-                self.results.append(self.pipeline.run(context))
+                result = self.pipeline.run(context)
+                self.results.append(result)
                 if len(self.results) > self.max_results:
                     del self.results[:-self.max_results]
+                if self.result_handler is not None:
+                    handled = self.result_handler(result)
+                    if inspect.isawaitable(handled):
+                        await handled
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
