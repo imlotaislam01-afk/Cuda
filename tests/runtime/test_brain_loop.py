@@ -33,6 +33,22 @@ def test_brain_loop_deduplicates_and_rejects_stale_contexts():
     asyncio.run(scenario())
 
 
+def test_brain_loop_bounds_retained_results():
+    async def scenario():
+        pipeline = Pipeline()
+        loop = BrainLoop(pipeline, max_results=2, stale_after=100, clock=lambda: 100)
+        await loop.start()
+        for event_time in (98.0, 99.0, 100.0):
+            context = type("Context", (), {"symbol": "BTCUSDT", "event_time": event_time})()
+            assert await loop.submit(context) is True
+        await loop.queue.join()
+        assert len(loop.results) == 2
+        assert [result.event_time for result in loop.results] == [99.0, 100.0]
+        await loop.stop()
+
+    asyncio.run(scenario())
+
+
 def test_brain_loop_isolates_pipeline_errors():
     async def scenario():
         loop = BrainLoop(Pipeline(failure=True), clock=lambda: 100)

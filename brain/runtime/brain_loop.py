@@ -8,12 +8,13 @@ from typing import Any, Callable
 class BrainLoop:
     """Bounded canonical-context consumer that never submits exchange orders."""
 
-    def __init__(self, pipeline: Any, *, max_queue_size: int = 64, stale_after: float = 30.0,
+    def __init__(self, pipeline: Any, *, max_queue_size: int = 64, max_results: int = 1000, stale_after: float = 30.0,
                  clock: Callable[[], float] | None = None) -> None:
-        if max_queue_size <= 0 or stale_after < 0:
+        if max_queue_size <= 0 or max_results <= 0 or stale_after < 0:
             raise ValueError("Brain loop limits must be positive")
         self.pipeline = pipeline
         self.queue: asyncio.Queue[Any] = asyncio.Queue(maxsize=max_queue_size)
+        self.max_results = max_results
         self.stale_after = stale_after
         self.clock = clock or time.time
         self.running = False
@@ -57,6 +58,8 @@ class BrainLoop:
             context = await self.queue.get()
             try:
                 self.results.append(self.pipeline.run(context))
+                if len(self.results) > self.max_results:
+                    del self.results[:-self.max_results]
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
