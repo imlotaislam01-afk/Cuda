@@ -104,8 +104,19 @@ class EngineSupervisor:
         ready = getattr(component, "ready", None)
         return ready is None or bool(ready)
 
-    async def start_runtime(self) -> bool:
+    async def _wait_component_ready(self, name: str, component: Any, timeout: float) -> None:
+        if getattr(component, "ready", None) is None:
+            return
+        deadline = asyncio.get_running_loop().time() + timeout
+        while not self._component_ready(component):
+            if self._component_failed(component) or asyncio.get_running_loop().time() >= deadline:
+                raise RuntimeError(f"{name} is not ready")
+            await asyncio.sleep(0.05)
+
+    async def start_runtime(self, *, readiness_timeout: float = 30.0) -> bool:
         """Start all injected runtime subsystems under one lifecycle owner."""
+        if readiness_timeout <= 0:
+            raise ValueError("Runtime readiness timeout must be positive")
         if not self.start(activate=False):
             return False
         if self.brain_loop is not None and self.execution_consumer is not None and hasattr(self.brain_loop, "result_handler"):
@@ -122,8 +133,7 @@ class EngineSupervisor:
                 if not await component.start():
                     raise RuntimeError(f"{name} failed to start")
                 started.append(component)
-                if not self._component_ready(component):
-                    raise RuntimeError(f"{name} is not ready")
+                await self._wait_component_ready(name, component, readiness_timeout)
             self.state = LifecycleState.RUNNING
             self.health.lifecycle_state = self.state
             self._record_lifecycle("RUNTIME_RUNNING", {"state": self.state.value})

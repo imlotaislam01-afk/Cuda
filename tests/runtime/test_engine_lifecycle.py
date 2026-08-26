@@ -24,6 +24,11 @@ class RuntimeComponent:
         self.running = True
         return True
 
+    async def stop(self):
+        self.events.append(f"stop:{self.name}")
+        self.running = False
+        return True
+
 
 class ShutdownComponent:
     def __init__(self, events):
@@ -35,11 +40,6 @@ class ShutdownComponent:
 
     def remove_signal_handlers(self):
         self.events.append("signals:remove")
-
-    async def stop(self):
-        self.events.append(f"stop:{self.name}")
-        self.running = False
-        return True
 
 
 def test_engine_supervisor_starts_in_paper_mode_and_reports_runtime_state():
