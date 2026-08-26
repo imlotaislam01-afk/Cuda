@@ -38,6 +38,26 @@ class ReconciliationService:
             positions = self.coordinator.adapter.get_positions()
             if positions is None:
                 raise RuntimeError("remote positions unavailable")
+            remote_orders = self.coordinator.adapter.get_open_orders()
+            remote_order_ids = {order.client_order_id for order in remote_orders}
+            terminal = {"FILLED", "CANCELED", "CANCELLED", "REJECTED", "EXPIRED"}
+            local_orders = self.coordinator.ledger.load_orders()
+            missing = [
+                order.client_order_id
+                for order in local_orders
+                if order.status.value not in terminal and order.client_order_id not in remote_order_ids
+            ]
+            if missing:
+                self.coordinator.recovery_state = "RECOVERY"
+                self.coordinator.ledger.record_reconciliation(
+                    "UNKNOWN",
+                    status="UNKNOWN",
+                    details={"reason": "LOCAL_ORDER_MISSING_REMOTE", "client_order_ids": missing},
+                    event_time=0.0,
+                )
+                self.last_result = None
+                self.healthy = False
+                return False
             if not positions:
                 result = self.coordinator.reconcile()
                 self.last_result = result

@@ -449,6 +449,14 @@ class ExecutionLedger:
             payload=json.loads(row[14]) if row[14] else {},
         )
 
+    def load_orders(self) -> list[OrderState]:
+        if self._connection is None:
+            return []
+        rows = self._connection.execute(
+            "SELECT client_order_id FROM orders ORDER BY created_at, client_order_id"
+        ).fetchall()
+        return [order for row in rows if (order := self.load_order(row[0])) is not None]
+
     def record_reconciliation(
         self,
         *args: str,

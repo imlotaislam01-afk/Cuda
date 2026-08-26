@@ -1,5 +1,24 @@
 import asyncio
 
+from brain.execution import ExecutionConfig, ExecutionCoordinator, ExecutionLedger, OrderRequest, PaperExecutionAdapter
+from brain.runtime.reconciliation_service import ReconciliationService
+from tests.execution.test_p3_foundation import intent
+
+
+def test_reconciliation_detects_local_order_missing_from_exchange(tmp_path):
+    async def scenario():
+        path = str(tmp_path / "orders.sqlite3")
+        ledger = ExecutionLedger(path)
+        coordinator = ExecutionCoordinator(PaperExecutionAdapter(), ExecutionConfig(state_db_path=path), ledger)
+        order = OrderRequest.from_intent(intent())
+        ledger.persist_order(order)
+        service = ReconciliationService(coordinator)
+
+        assert await service.reconcile_once() is False
+        assert coordinator.recovery_state == "RECOVERY"
+
+    asyncio.run(scenario())
+
 from brain.execution import ExecutionCoordinator, PaperExecutionAdapter
 from brain.runtime.reconciliation_service import ReconciliationService
 
