@@ -46,7 +46,7 @@ class RecoveryManager:
                 )
                 if result.status not in {"MATCH", "OK"}:
                     raise RuntimeError(f"position reconciliation failed for {position.symbol}")
-        except (TimeoutError, ConnectionError, KeyError, RuntimeError, TypeError, ValueError) as exc:
+        except Exception as exc:
             self.last_error = str(exc)
             self.ledger.record_recovery_event("RECOVERY", self.last_error, payload={"source": "exchange"}, event_time=0.0)
             return False

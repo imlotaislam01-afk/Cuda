@@ -12,6 +12,11 @@ class MalformedAccountAdapter(PaperExecutionAdapter):
         return {"available_balance": "not-a-number"}
 
 
+class BrokenRecoveryAdapter(PaperExecutionAdapter):
+    def get_open_orders(self):
+        raise OSError("remote order state failed")
+
+
 def test_malformed_account_state_blocks_runtime_startup():
     coordinator = ExecutionCoordinator(MalformedAccountAdapter())
     supervisor = EngineSupervisor(config=RuntimeConfig(), coordinator=coordinator)
@@ -19,6 +24,16 @@ def test_malformed_account_state_blocks_runtime_startup():
     assert supervisor.start() is False
     assert supervisor.state is LifecycleState.DEGRADED
     assert supervisor.execution_allowed is False
+
+
+def test_unexpected_recovery_failure_degrades_runtime_fail_closed():
+    coordinator = ExecutionCoordinator(BrokenRecoveryAdapter())
+    supervisor = EngineSupervisor(config=RuntimeConfig(), coordinator=coordinator)
+
+    assert supervisor.start() is False
+    assert supervisor.state is LifecycleState.DEGRADED
+    assert supervisor.health.execution_ready is False
+    assert supervisor.recovery_manager.last_error == "remote order state failed"
 
 
 def test_corrupt_ledger_cannot_become_a_running_supervisor(tmp_path):
