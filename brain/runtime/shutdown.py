@@ -14,6 +14,7 @@ class ShutdownManager:
         self.completed = False
         self.failed = False
         self._signal_handlers: list[tuple[asyncio.AbstractEventLoop, signal.Signals]] = []
+        self.shutdown_task: asyncio.Task | None = None
 
     def begin(self) -> bool:
         if not self.accepting_work:
@@ -27,7 +28,7 @@ class ShutdownManager:
 
         def request() -> None:
             if self.begin():
-                loop.create_task(callback(), name="apex-shutdown")
+                self.shutdown_task = loop.create_task(self._run_callback(callback), name="apex-shutdown")
 
         for event in (signal.SIGINT, signal.SIGTERM):
             loop.add_signal_handler(event, request)
@@ -53,3 +54,19 @@ class ShutdownManager:
             self._signal_handlers.clear()
         self.completed = True
         return True
+
+    async def _run_callback(self, callback: Callable[[], Awaitable[None]]) -> None:
+        try:
+            await callback()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            self.failed = True
+        finally:
+            self.shutdown_task = None
+
+    async def wait_for_signal_shutdown(self) -> bool:
+        task = self.shutdown_task
+        if task is not None:
+            await task
+        return not self.failed

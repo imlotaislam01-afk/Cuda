@@ -32,3 +32,27 @@ def test_shutdown_manager_times_out_fail_closed():
         assert manager.failed is True
 
     asyncio.run(scenario())
+
+
+def test_signal_shutdown_task_is_owned_and_awaitable():
+    async def scenario():
+        manager = ShutdownManager()
+        handlers = {}
+        loop = asyncio.get_running_loop()
+        original = loop.add_signal_handler
+        loop.add_signal_handler = lambda event, callback: handlers.__setitem__(event, callback)
+        try:
+            async def callback():
+                await asyncio.sleep(0)
+
+            manager.install_signal_handlers(callback)
+            handlers[next(iter(handlers))]()
+            assert await manager.wait_for_signal_shutdown() is True
+            assert manager.shutdown_task is None
+            assert manager.requested is True
+        finally:
+            loop.add_signal_handler = original
+            for event in tuple(handlers):
+                loop.remove_signal_handler(event)
+
+    asyncio.run(scenario())
