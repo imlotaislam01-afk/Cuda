@@ -138,7 +138,9 @@ class ExecutionCoordinator:
             self.recovery_state = "RECOVERY"
             return ExecutionOutcome("UNKNOWN", submitted, "SUBMISSION_STATUS_UNKNOWN")
         self.process_confirmed_fill(submitted, now=now, source="SUBMIT")
-        if submitted.status is OrderStatus.PARTIALLY_FILLED:
+        if submitted.status is OrderStatus.PARTIALLY_FILLED or (
+            submitted.status is OrderStatus.FILLED and self.config.mode is ExecutionMode.PAPER
+        ):
             protection = self.synchronize_protection(intent, submitted, now=now)
             if not protection:
                 return ExecutionOutcome("UNKNOWN", submitted, "RECOVERY_REQUIRED")
