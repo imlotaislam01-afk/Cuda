@@ -61,6 +61,23 @@ def test_timeout_after_submit_reconciles_without_duplicate():
     assert outcome.order.status == OrderStatus.NEW
 
 
+def test_timeout_with_unavailable_order_query_is_unknown_and_blocks_retry():
+    class AmbiguousAdapter(InMemoryExecutionAdapter):
+        def submit_order(self, order):
+            raise TimeoutError("ack lost")
+
+        def get_order(self, client_order_id):
+            raise ConnectionError("order query unavailable")
+
+    coordinator = ExecutionCoordinator(AmbiguousAdapter())
+    outcome = coordinator.submit_intent(intent(), now=10)
+
+    assert outcome.status == "UNKNOWN"
+    assert outcome.reason == "SUBMISSION_STATUS_UNKNOWN"
+    assert coordinator.recovery_state == "RECOVERY"
+    assert coordinator.submit_intent(intent(), now=11).reason == "RECOVERY_REQUIRED"
+
+
 def test_reconciliation_detects_position_discrepancies():
     adapter = InMemoryExecutionAdapter()
     adapter.positions.append(PositionSnapshot("BTCUSDT", "LONG", 0.5, 100, "PAPER"))
