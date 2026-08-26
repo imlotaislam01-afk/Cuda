@@ -32,6 +32,18 @@ class RecoveryManager:
             positions = self.adapter.get_positions()
             if open_orders is None or positions is None:
                 raise RuntimeError("remote state is unavailable")
+            for position in positions:
+                protections = [
+                    order for order in open_orders
+                    if order.symbol.upper() == position.symbol.upper()
+                    and order.reduce_only
+                    and order.quantity >= position.quantity
+                    and order.status.value in {"NEW", "ACKNOWLEDGED", "PARTIALLY_FILLED"}
+                ]
+                if not any(order.order_type == "STOP_MARKET" for order in protections):
+                    raise RuntimeError(f"protection stop missing for {position.symbol}")
+                if not any(order.order_type == "TAKE_PROFIT" for order in protections):
+                    raise RuntimeError(f"protection target missing for {position.symbol}")
             for order in open_orders:
                 self.ledger.persist_order(order)
             for position in positions:
