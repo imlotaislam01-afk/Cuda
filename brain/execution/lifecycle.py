@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import hashlib
 import sqlite3
+from contextlib import contextmanager
 from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Any
@@ -142,6 +143,19 @@ class ExecutionLedger:
         self._connection = sqlite3.connect(db_path) if db_path else None
         if self._connection is not None:
             self._initialize_schema()
+
+    @contextmanager
+    def atomic(self):
+        if self._connection is None:
+            yield
+            return
+        try:
+            self._connection.execute("BEGIN IMMEDIATE")
+            yield
+            self._connection.commit()
+        except Exception:
+            self._connection.rollback()
+            raise
 
     def close(self) -> None:
         if self._connection is not None:
@@ -295,13 +309,52 @@ class ExecutionLedger:
         state = IntentState(client_order_id, intent.symbol.upper(), status.upper(), float(created_at), intent.to_dict())
         self.intents[client_order_id] = state
         if self._connection is not None:
-            self._connection.execute(
-                "INSERT INTO execution_intents (client_order_id, symbol, status, created_at, payload_json) VALUES (?, ?, ?, ?, ?) "
-                "ON CONFLICT(client_order_id) DO UPDATE SET status=excluded.status, payload_json=excluded.payload_json",
-                (state.client_order_id, state.symbol, state.status, state.created_at, json.dumps(state.payload, sort_keys=True, separators=(",", ":"))),
-            )
-            self._connection.commit()
+            with self.atomic():
+                self._connection.execute(
+                    "INSERT INTO execution_intents (client_order_id, symbol, status, created_at, payload_json) VALUES (?, ?, ?, ?, ?) "
+                    "ON CONFLICT(client_order_id) DO UPDATE SET status=excluded.status, payload_json=excluded.payload_json",
+                    (state.client_order_id, state.symbol, state.status, state.created_at, json.dumps(state.payload, sort_keys=True, separators=(",", ":"))),
+                )
         return state
+
+    def persist_intent_order_transition(
+        self,
+        intent: Any,
+        order: Any,
+        *,
+        status: str = "APPROVED",
+        created_at: float = 0.0,
+        event_type: str = "EXECUTION_APPROVED",
+        event_details: dict[str, Any] | None = None,
+    ) -> tuple[IntentState, OrderState]:
+        intent_state = IntentState(order.client_order_id, intent.symbol.upper(), status.upper(), float(created_at), intent.to_dict())
+        order_state = self.persist_order(order)
+        self.intents[order.client_order_id] = intent_state
+        if self._connection is not None:
+            with self.atomic():
+                self._connection.execute(
+                    "INSERT INTO execution_intents (client_order_id, symbol, status, created_at, payload_json) VALUES (?, ?, ?, ?, ?) "
+                    "ON CONFLICT(client_order_id) DO UPDATE SET status=excluded.status, payload_json=excluded.payload_json",
+                    (
+                        intent_state.client_order_id,
+                        intent_state.symbol,
+                        intent_state.status,
+                        intent_state.created_at,
+                        json.dumps(intent_state.payload, sort_keys=True, separators=(",", ":")),
+                    ),
+                )
+                self._connection.execute(
+                    "INSERT INTO execution_events (event_type, client_order_id, event_time, details_json) VALUES (?, ?, ?, ?)",
+                    (
+                        event_type,
+                        order.client_order_id,
+                        float(created_at),
+                        json.dumps(event_details or {}, sort_keys=True, separators=(",", ":")),
+                    ),
+                )
+        else:
+            self.events.append(ExecutionEvent(event_type, order.client_order_id, float(created_at), event_details or {}))
+        return intent_state, order_state
 
     def load_intent(self, client_order_id: str) -> IntentState | None:
         if self._connection is None:
@@ -474,23 +527,23 @@ class ExecutionLedger:
             self.record_reconciliation(position.symbol, status=reconciliation_status, details=reconciliation_details, event_time=event_time)
             return
         try:
-            self._connection.execute(
-                "INSERT OR IGNORE INTO fills (fill_id, exchange, symbol, order_id, client_order_id, execution_timestamp, side, price, quantity, fee, fee_currency, source, sequence, payload_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (fill.fill_id, fill.exchange, fill.symbol, fill.order_id, fill.client_order_id, fill.execution_timestamp, fill.side, fill.price, fill.quantity, fill.fee, fill.fee_currency, fill.source, fill.sequence, "{}"),
-            )
-            self._connection.execute(
-                "INSERT INTO positions (symbol, side, quantity, average_price, exchange, status, updated_at, payload_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(symbol) DO UPDATE SET side=excluded.side, quantity=excluded.quantity, average_price=excluded.average_price, exchange=excluded.exchange, status=excluded.status, updated_at=excluded.updated_at, payload_json=excluded.payload_json",
-                (position.symbol.upper(), position.side, position.quantity, position.average_price, position.exchange, position.status, event_time, "{}"),
-            )
-            self._connection.execute(
-                "INSERT INTO execution_events (event_type, client_order_id, event_time, details_json) VALUES (?, ?, ?, ?)",
-                (event_type, fill.client_order_id, event_time, json.dumps(event_details, sort_keys=True, separators=(",", ":"))),
-            )
-            self._connection.execute(
-                "INSERT INTO reconciliation (symbol, status, created_at, payload_json) VALUES (?, ?, ?, ?)",
-                (position.symbol.upper(), reconciliation_status.upper(), event_time, json.dumps(reconciliation_details, sort_keys=True, separators=(",", ":"))),
-            )
-            self._connection.commit()
+            with self.atomic():
+                self._connection.execute(
+                    "INSERT OR IGNORE INTO fills (fill_id, exchange, symbol, order_id, client_order_id, execution_timestamp, side, price, quantity, fee, fee_currency, source, sequence, payload_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (fill.fill_id, fill.exchange, fill.symbol, fill.order_id, fill.client_order_id, fill.execution_timestamp, fill.side, fill.price, fill.quantity, fill.fee, fill.fee_currency, fill.source, fill.sequence, "{}"),
+                )
+                self._connection.execute(
+                    "INSERT INTO positions (symbol, side, quantity, average_price, exchange, status, updated_at, payload_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(symbol) DO UPDATE SET side=excluded.side, quantity=excluded.quantity, average_price=excluded.average_price, exchange=excluded.exchange, status=excluded.status, updated_at=excluded.updated_at, payload_json=excluded.payload_json",
+                    (position.symbol.upper(), position.side, position.quantity, position.average_price, position.exchange, position.status, event_time, "{}"),
+                )
+                self._connection.execute(
+                    "INSERT INTO execution_events (event_type, client_order_id, event_time, details_json) VALUES (?, ?, ?, ?)",
+                    (event_type, fill.client_order_id, event_time, json.dumps(event_details, sort_keys=True, separators=(",", ":"))),
+                )
+                self._connection.execute(
+                    "INSERT INTO reconciliation (symbol, status, created_at, payload_json) VALUES (?, ?, ?, ?)",
+                    (position.symbol.upper(), reconciliation_status.upper(), event_time, json.dumps(reconciliation_details, sort_keys=True, separators=(",", ":"))),
+                )
         except Exception:
             self._connection.rollback()
             raise

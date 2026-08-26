@@ -114,9 +114,14 @@ class ExecutionCoordinator:
         if available_balance < notional / max(float(intent.leverage), 1.0):
             return self._reject(intent.symbol, "INSUFFICIENT_BALANCE", now)
         self._requests[order.client_order_id] = fingerprint
-        self.ledger.persist_intent(intent, client_order_id=order.client_order_id, status="APPROVED", created_at=now)
-        self.ledger.record("EXECUTION_APPROVED", client_order_id=order.client_order_id, event_time=now, exchange=self.adapter.exchange)
-        self.ledger.persist_order(order)
+        self.ledger.persist_intent_order_transition(
+            intent,
+            order,
+            status="APPROVED",
+            created_at=now,
+            event_type="EXECUTION_APPROVED",
+            event_details={"exchange": self.adapter.exchange},
+        )
         try:
             submitted = self.adapter.submit_order(order)
         except (TimeoutError, ConnectionError, ExecutionTransportError, ValueError) as error:

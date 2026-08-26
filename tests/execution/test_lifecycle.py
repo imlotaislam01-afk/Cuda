@@ -1,4 +1,7 @@
+import sqlite3
 from dataclasses import replace
+
+import pytest
 
 from brain.execution import ExecutionConfig, ExecutionCoordinator, ExecutionLedger, ExecutionMode, OrderRequest, OrderStatus, PaperExecutionAdapter, PositionSnapshot
 from brain.risk import RiskConfig, RiskGate
@@ -186,3 +189,52 @@ def test_alert_listener_failure_does_not_break_durable_event():
 
     ledger = ExecutionLedger(event_listener=failing_listener)
     assert ledger.record("KILL_SWITCH", event_time=1, reason="drawdown").event_type == "KILL_SWITCH"
+
+
+def test_ledger_persists_intent_and_order_atomically(tmp_path):
+    ledger = ExecutionLedger(str(tmp_path / "intent_order.sqlite3"))
+    entry = ExecutionCoordinator(PaperExecutionAdapter(), ExecutionConfig(state_db_path=str(tmp_path / "intent_order.sqlite3"))).submit_intent(intent(), now=2)
+    saved_intent = ledger.load_intent(entry.order.client_order_id)
+    saved_order = ledger.load_order(entry.order.client_order_id)
+    assert saved_intent is not None
+    assert saved_order is not None
+    assert saved_intent.status == "APPROVED"
+    assert saved_order.status.value == "FILLED"
+
+
+def test_confirmed_fill_transaction_rolls_back_on_failure(tmp_path):
+    ledger = ExecutionLedger(str(tmp_path / "atomic_fill.sqlite3"))
+    fill = ledger.create_fill(
+        symbol="BTCUSDT",
+        client_order_id="fill-rollback",
+        side="BUY",
+        quantity=0.25,
+        price=100.0,
+        event_time=9.0,
+    )
+    position = PositionSnapshot("BTCUSDT", "LONG", 0.25, 100.0, "PAPER")
+
+    class FailingPositionConnection:
+        def __init__(self, wrapped):
+            self._wrapped = wrapped
+
+        def execute(self, sql, params=()):
+            if "INSERT INTO positions" in sql:
+                raise sqlite3.DatabaseError("simulated write failure")
+            return self._wrapped.execute(sql, params)
+
+        def commit(self):
+            return self._wrapped.commit()
+
+        def rollback(self):
+            return self._wrapped.rollback()
+
+        def __getattr__(self, name):
+            return getattr(self._wrapped, name)
+
+    ledger._connection = FailingPositionConnection(ledger._connection)
+    with pytest.raises(sqlite3.DatabaseError):
+        ledger.record_confirmed_fill(fill, position, "FILLED", {"quantity": 0.25}, "MATCH", {"client_order_id": "fill-rollback"}, 9.0)
+
+    assert ledger.load_fills("fill-rollback") == ()
+    assert ledger.load_position("BTCUSDT") is None
