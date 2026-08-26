@@ -4,7 +4,7 @@ import time
 
 from brain.execution import ExecutionConfig, ExecutionCoordinator, ExecutionLedger, ExecutionMode, PaperExecutionAdapter
 from brain.pipeline import ApexBrainPipeline
-from brain.runtime import BrainLoop, DashboardManager, ExecutionConsumer, EngineSupervisor, MarketDataManager, ReconciliationService
+from brain.runtime import BrainLoop, DashboardManager, ExecutionConsumer, EngineSupervisor, MarketDataManager, ReconciliationService, ShutdownManager
 from config.runtime import RuntimeConfig
 from market.integration.context_adapter import LiveSnapshotContextAdapter
 from market.integration.live_snapshot import LiveMarketSnapshot
@@ -37,6 +37,7 @@ def build_runtime(runtime: RuntimeConfig):
         execution_consumer=execution_consumer,
         reconciliation_service=reconciliation,
         dashboard=dashboard,
+        shutdown_manager=ShutdownManager(),
     )
 
     def context_provider():
