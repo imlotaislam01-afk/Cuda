@@ -120,6 +120,15 @@ class ProtectionState:
         }
 
 
+@dataclass(frozen=True)
+class IntentState:
+    client_order_id: str
+    symbol: str
+    status: str
+    created_at: float
+    payload: dict[str, Any] = field(default_factory=dict)
+
+
 class ExecutionLedger:
     """Append-only deterministic execution lifecycle record with durable domain state."""
 
@@ -127,6 +136,7 @@ class ExecutionLedger:
         self.events: list[ExecutionEvent] = []
         self.event_listener = event_listener
         self.fills: dict[str, Fill] = {}
+        self.intents: dict[str, IntentState] = {}
         self._kill_switch_state = "RESET"
         self._recovery_state = "READY"
         self._connection = sqlite3.connect(db_path) if db_path else None
@@ -172,6 +182,11 @@ class ExecutionLedger:
             "order_type TEXT NOT NULL, quantity REAL NOT NULL, filled_quantity REAL NOT NULL, "
             "average_fill_price REAL, created_at REAL NOT NULL, updated_at REAL NOT NULL, "
             "exchange TEXT NOT NULL, execution_mode TEXT NOT NULL, parent_client_order_id TEXT, payload_json TEXT NOT NULL)"
+        )
+        self._connection.execute(
+            "CREATE TABLE IF NOT EXISTS execution_intents ("
+            "client_order_id TEXT PRIMARY KEY NOT NULL, symbol TEXT NOT NULL, status TEXT NOT NULL, "
+            "created_at REAL NOT NULL, payload_json TEXT NOT NULL)"
         )
         self._connection.execute(
             "CREATE TABLE IF NOT EXISTS positions ("
@@ -249,6 +264,7 @@ class ExecutionLedger:
         )
         if self._connection is None:
             return state
+
         self._connection.execute(
             "INSERT INTO orders (client_order_id, exchange_order_id, symbol, side, status, order_type, quantity, filled_quantity, average_fill_price, created_at, updated_at, exchange, execution_mode, parent_client_order_id, payload_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(client_order_id) DO UPDATE SET exchange_order_id=excluded.exchange_order_id, symbol=excluded.symbol, side=excluded.side, status=excluded.status, order_type=excluded.order_type, quantity=excluded.quantity, filled_quantity=excluded.filled_quantity, average_fill_price=excluded.average_fill_price, updated_at=excluded.updated_at, exchange=excluded.exchange, execution_mode=excluded.execution_mode, parent_client_order_id=excluded.parent_client_order_id, payload_json=excluded.payload_json",
             (
@@ -271,6 +287,29 @@ class ExecutionLedger:
         )
         self._connection.commit()
         return state
+
+    def persist_intent(self, intent: Any, *, client_order_id: str, status: str = "CREATED", created_at: float = 0.0) -> IntentState:
+        state = IntentState(client_order_id, intent.symbol.upper(), status.upper(), float(created_at), intent.to_dict())
+        self.intents[client_order_id] = state
+        if self._connection is not None:
+            self._connection.execute(
+                "INSERT INTO execution_intents (client_order_id, symbol, status, created_at, payload_json) VALUES (?, ?, ?, ?, ?) "
+                "ON CONFLICT(client_order_id) DO UPDATE SET status=excluded.status, payload_json=excluded.payload_json",
+                (state.client_order_id, state.symbol, state.status, state.created_at, json.dumps(state.payload, sort_keys=True, separators=(",", ":"))),
+            )
+            self._connection.commit()
+        return state
+
+    def load_intent(self, client_order_id: str) -> IntentState | None:
+        if self._connection is None:
+            return self.intents.get(client_order_id)
+        row = self._connection.execute(
+            "SELECT client_order_id, symbol, status, created_at, payload_json FROM execution_intents WHERE client_order_id = ?",
+            (client_order_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return IntentState(row[0], row[1], row[2], float(row[3]), json.loads(row[4]) if row[4] else {})
 
     def load_order(self, client_order_id: str) -> OrderState | None:
         if self._connection is None:

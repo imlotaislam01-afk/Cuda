@@ -95,6 +95,7 @@ class ExecutionCoordinator:
         if available_balance < notional / max(float(intent.leverage), 1.0):
             return self._reject(intent.symbol, "INSUFFICIENT_BALANCE", now)
         self._requests[order.client_order_id] = fingerprint
+        self.ledger.persist_intent(intent, client_order_id=order.client_order_id, status="APPROVED", created_at=now)
         self.ledger.record("EXECUTION_APPROVED", client_order_id=order.client_order_id, event_time=now, exchange=self.adapter.exchange)
         self.ledger.persist_order(order)
         try:

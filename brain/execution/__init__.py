@@ -11,6 +11,7 @@ from .reconciliation import reconcile_positions
 from .metadata import ExchangeMetadataService
 from .protection import ProtectionManager, ProtectionResult
 from .lifecycle import ExecutionEvent, ExecutionLedger
+from .lifecycle import ExecutionEvent, ExecutionLedger, IntentState
 from .paper_adapter import PaperExecutionAdapter
 from .state import OrderStateMachine
 from .transport import AuthenticatedRESTTransport, ExecutionTransportError, TestnetEndpoint
@@ -71,6 +72,7 @@ __all__ = [
     "ProtectionResult",
     "ExecutionEvent",
     "ExecutionLedger",
+    "IntentState",
     "PaperExecutionAdapter",
     "OrderStateMachine",
     "AuthenticatedRESTTransport",
