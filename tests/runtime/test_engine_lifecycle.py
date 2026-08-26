@@ -222,10 +222,16 @@ def test_engine_supervisor_degrades_when_running_reconciliation_becomes_unhealth
             failed = False
             healthy = True
             calls = 0
+            task = None
 
             async def start(self):
                 self.running = True
+                self.task = asyncio.create_task(self.become_unhealthy())
                 return True
+
+            async def become_unhealthy(self):
+                await asyncio.sleep(0)
+                self.healthy = False
 
             async def reconcile_once(self):
                 self.calls += 1
@@ -234,6 +240,8 @@ def test_engine_supervisor_degrades_when_running_reconciliation_becomes_unhealth
 
             async def stop(self):
                 self.running = False
+                if self.task is not None:
+                    await self.task
                 return True
 
         class Market:

@@ -246,6 +246,12 @@ class EngineSupervisor:
                         self.health.lifecycle_state = self.state
                         self._record_lifecycle("RUNTIME_DEGRADED", {"reason": "MARKET_DATA_UNHEALTHY"})
                         break
+                if self.reconciliation_service is not None and getattr(self.reconciliation_service, "healthy", None) is False:
+                    self.health.execution_ok = False
+                    self.state = LifecycleState.DEGRADED
+                    self.health.lifecycle_state = self.state
+                    self._record_lifecycle("RUNTIME_DEGRADED", {"reason": "RECONCILIATION_UNHEALTHY"})
+                    break
                 context = context_provider()
                 if inspect.isawaitable(context):
                     context = await context
