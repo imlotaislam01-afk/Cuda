@@ -128,6 +128,7 @@ class ExecutionLedger:
         self.event_listener = event_listener
         self.fills: dict[str, Fill] = {}
         self._kill_switch_state = "RESET"
+        self._recovery_state = "READY"
         self._connection = sqlite3.connect(db_path) if db_path else None
         if self._connection is not None:
             self._initialize_schema()
@@ -317,6 +318,7 @@ class ExecutionLedger:
         if status is None:
             raise TypeError("record_reconciliation() missing required argument: 'status'")
         payload = details or {}
+        self._recovery_state = "READY" if status.upper() in {"MATCH", "OK"} else "RECOVERY"
         if self._connection is not None:
             self._connection.execute(
                 "INSERT INTO reconciliation (symbol, status, created_at, payload_json) VALUES (?, ?, ?, ?)",
@@ -328,13 +330,13 @@ class ExecutionLedger:
     @property
     def recovery_state(self) -> str:
         if self._connection is None:
-            return "READY"
+            return self._recovery_state
         row = self._connection.execute(
             "SELECT status FROM reconciliation ORDER BY id DESC LIMIT 1"
         ).fetchone()
         if row is None:
             return "READY"
-        return "RECOVERY" if row[0].upper() not in {"MATCH", "OK"} else "READY"
+        return "RECOVERY" if row[0].upper() not in {"MATCH", "OK"} else self._recovery_state
 
     def record_recovery_event(self, state: str, reason: str, *, payload: dict[str, Any] | None = None, event_time: float = 0.0) -> None:
         if self._connection is None:
