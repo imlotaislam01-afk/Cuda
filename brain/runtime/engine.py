@@ -205,6 +205,12 @@ class EngineSupervisor:
         return True
 
     def stop(self) -> bool:
+        if any(getattr(component, "running", False) for _name, component in self._runtime_components if component is not None):
+            try:
+                asyncio.get_running_loop()
+            except RuntimeError:
+                return asyncio.run(self.stop_runtime())
+            raise RuntimeError("Use stop_runtime() from an active event loop")
         if self.state is LifecycleState.STOPPED:
             return True
         self.state = LifecycleState.STOPPING

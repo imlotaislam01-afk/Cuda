@@ -167,3 +167,17 @@ def test_engine_supervisor_owns_signal_handler_lifecycle():
         assert events == ["signals:install", "signals:remove"]
 
     asyncio.run(scenario())
+
+
+def test_sync_stop_delegates_to_owned_runtime_components():
+    events = []
+    component = RuntimeComponent("market", events)
+    supervisor = EngineSupervisor(config=RuntimeConfig(), market_data=component)
+
+    async def start():
+        assert await supervisor.start_runtime() is True
+
+    asyncio.run(start())
+    assert supervisor.stop() is True
+    assert events == ["start:market", "stop:market"]
+    assert supervisor.state is LifecycleState.STOPPED
