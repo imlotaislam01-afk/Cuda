@@ -189,11 +189,16 @@ class EngineSupervisor:
                     raise RuntimeError(f"{name} failed to start")
                 started.append(component)
                 await self._wait_component_ready(name, component, readiness_timeout)
+                if name == "market_data" and not self._component_ready(component):
+                    raise RuntimeError("market data not ready")
                 if name == "reconciliation" and hasattr(component, "reconcile_once"):
                     if not await component.reconcile_once():
                         raise RuntimeError("initial reconciliation failed")
+            if self.market_data is not None and not self.market_data.ready:
+                raise RuntimeError("market data is not healthy")
             self.state = LifecycleState.RUNNING
             self.health.lifecycle_state = self.state
+            self.health.market_data_ok = self.market_data.ready if self.market_data is not None else True
             self._record_lifecycle("RUNTIME_RUNNING", {"state": self.state.value})
             if self.shutdown_manager is not None:
                 self.shutdown_manager.install_signal_handlers(self.stop_runtime)
@@ -228,6 +233,14 @@ class EngineSupervisor:
                     self.health.lifecycle_state = self.state
                     self._record_lifecycle("RUNTIME_DEGRADED", {"reason": "COMPONENT_FAILURE"})
                     break
+                if self.market_data is not None:
+                    self.health.market_data_ok = self.market_data.ready
+                    if not self.health.market_data_ok:
+                        self.health.execution_ok = False
+                        self.state = LifecycleState.DEGRADED
+                        self.health.lifecycle_state = self.state
+                        self._record_lifecycle("RUNTIME_DEGRADED", {"reason": "MARKET_DATA_UNHEALTHY"})
+                        break
                 context = context_provider()
                 if inspect.isawaitable(context):
                     context = await context
