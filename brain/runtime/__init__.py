@@ -3,6 +3,7 @@ from .health import RuntimeHealth
 from .brain_loop import BrainLoop
 from .execution_consumer import ExecutionConsumer
 from .reconciliation_service import ReconciliationService
+from .dashboard import DashboardManager
 from .lifecycle import LifecycleState
 from .market_data import MarketDataManager
 from .recovery import RecoveryManager
@@ -18,4 +19,5 @@ __all__ = [
     "BrainLoop",
     "ExecutionConsumer",
     "ReconciliationService",
+    "DashboardManager",
 ]
