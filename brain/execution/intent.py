@@ -54,6 +54,25 @@ class ExecutionIntent:
             "metadata": dict(self.metadata),
         }
 
+    @classmethod
+    def from_dict(cls, value: dict[str, Any]) -> "ExecutionIntent":
+        return cls(
+            symbol=str(value["symbol"]),
+            action=str(value["action"]),
+            entry=float(value["entry"]),
+            stop_loss=float(value["stop_loss"]),
+            tp1=float(value["tp1"]) if value.get("tp1") is not None else None,
+            tp2=float(value["tp2"]) if value.get("tp2") is not None else None,
+            tp3=float(value["tp3"]) if value.get("tp3") is not None else None,
+            quantity=float(value["quantity"]),
+            leverage=float(value["leverage"]),
+            risk_usd=float(value["risk_usd"]),
+            approved=bool(value["approved"]),
+            paper_only=bool(value.get("paper_only", True)),
+            reasons=list(value.get("reasons", [])),
+            metadata=dict(value.get("metadata", {})),
+        )
+
 
 class ExecutionIntentBuilder:
 

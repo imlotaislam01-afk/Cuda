@@ -258,6 +258,14 @@ class ExecutionLedger:
             return tuple(ExecutionLedger._redact_details(item) for item in value)
         return value
 
+    @staticmethod
+    def _decode_intent_payload(value: str | None) -> dict[str, Any]:
+        try:
+            decoded = json.loads(value) if value else {}
+            return decoded if isinstance(decoded, dict) else {}
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return {}
+
     def record(self, event_type: str, *, client_order_id: str | None = None, event_time: float = 0.0, **details) -> ExecutionEvent:
         details = self._redact_details(details)
         event = ExecutionEvent(event_type, client_order_id, event_time, details)
@@ -380,7 +388,39 @@ class ExecutionLedger:
         ).fetchone()
         if row is None:
             return None
-        return IntentState(row[0], row[1], row[2], float(row[3]), json.loads(row[4]) if row[4] else {})
+        return IntentState(row[0], row[1], row[2], float(row[3]), self._decode_intent_payload(row[4]))
+
+    def load_intents(self, statuses: tuple[str, ...] | None = None) -> list[IntentState]:
+        if self._connection is None:
+            values = list(self.intents.values())
+        else:
+            query = "SELECT client_order_id, symbol, status, created_at, payload_json FROM execution_intents"
+            parameters: tuple[str, ...] = ()
+            if statuses:
+                placeholders = ",".join("?" for _ in statuses)
+                query += f" WHERE status IN ({placeholders})"
+                parameters = tuple(status.upper() for status in statuses)
+            query += " ORDER BY created_at, client_order_id"
+            rows = self._connection.execute(query, parameters).fetchall()
+            values = [IntentState(row[0], row[1], row[2], float(row[3]), self._decode_intent_payload(row[4])) for row in rows]
+        if statuses:
+            allowed = {status.upper() for status in statuses}
+            values = [value for value in values if value.status.upper() in allowed]
+        return values
+
+    def update_intent_status(self, client_order_id: str, status: str) -> IntentState | None:
+        current = self.load_intent(client_order_id)
+        if current is None:
+            return None
+        updated = IntentState(current.client_order_id, current.symbol, status.upper(), current.created_at, current.payload)
+        self.intents[client_order_id] = updated
+        if self._connection is not None:
+            with self.atomic():
+                self._connection.execute(
+                    "UPDATE execution_intents SET status = ? WHERE client_order_id = ?",
+                    (updated.status, client_order_id),
+                )
+        return updated
 
     def load_order(self, client_order_id: str) -> OrderState | None:
         if self._connection is None:
