@@ -191,6 +191,28 @@ def test_alert_listener_failure_does_not_break_durable_event():
     assert ledger.record("KILL_SWITCH", event_time=1, reason="drawdown").event_type == "KILL_SWITCH"
 
 
+def test_ledger_rejects_divergent_replay_state(tmp_path):
+    path = str(tmp_path / "event_consistency.sqlite3")
+    ledger = ExecutionLedger(path)
+    fill = ledger.create_fill(symbol="BTCUSDT", client_order_id="evt-1", side="BUY", quantity=0.25, price=100.0, event_time=11.0)
+    ledger.record_fill(fill=fill, symbol="BTCUSDT", client_order_id="evt-1", side="BUY", quantity=0.25, price=100.0, event_time=11.0)
+    ledger.persist_position(PositionSnapshot("BTCUSDT", "LONG", 0.25, 100.0, "PAPER"))
+    ledger._connection.execute("UPDATE positions SET quantity = 0.50 WHERE symbol = 'BTCUSDT'")
+    ledger._connection.commit()
+    with pytest.raises(ValueError, match="State mismatch|divergent|corrupt|mismatch"):
+        ledger.snapshot()
+
+
+def test_ledger_rejects_corrupted_event_payloads(tmp_path):
+    path = str(tmp_path / "event_payload.sqlite3")
+    ledger = ExecutionLedger(path)
+    ledger.record("FILLED", client_order_id="evt-2", event_time=12.0, quantity=0.10)
+    ledger._connection.execute("UPDATE execution_events SET details_json = '{bad-json' WHERE client_order_id = 'evt-2'")
+    ledger._connection.commit()
+    with pytest.raises(ValueError, match="Corrupted|corrupt|malformed|event"):
+        ledger.snapshot()
+
+
 def test_ledger_persists_intent_and_order_atomically(tmp_path):
     ledger = ExecutionLedger(str(tmp_path / "intent_order.sqlite3"))
     entry = ExecutionCoordinator(PaperExecutionAdapter(), ExecutionConfig(state_db_path=str(tmp_path / "intent_order.sqlite3"))).submit_intent(intent(), now=2)

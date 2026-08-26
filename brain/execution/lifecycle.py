@@ -459,14 +459,38 @@ class ExecutionLedger:
         row = self._connection.execute("SELECT state FROM kill_switch_events ORDER BY id DESC LIMIT 1").fetchone()
         return row[0].upper() if row else "RESET"
 
+    def _validate_event_payload(self, event_type: str, details_json: str) -> dict[str, Any]:
+        try:
+            payload = json.loads(details_json)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"Corrupted event payload for {event_type}: invalid JSON") from exc
+        if not isinstance(payload, dict):
+            raise ValueError(f"Corrupted event payload for {event_type}: expected object")
+        return payload
+
+    def _validate_derived_state(self) -> None:
+        if self._connection is None:
+            return
+        positions = self._connection.execute(
+            "SELECT symbol, quantity FROM positions WHERE status = 'OPEN'"
+        ).fetchall()
+        for symbol, position_quantity in positions:
+            total_fill = self._connection.execute(
+                "SELECT COALESCE(SUM(quantity), 0) FROM fills WHERE symbol = ?",
+                (symbol,),
+            ).fetchone()[0]
+            if abs(float(position_quantity) - float(total_fill)) > 1e-9:
+                raise ValueError(f"State mismatch for {symbol}: position quantity diverges from fill history")
+
     def snapshot(self) -> list[dict[str, Any]]:
         if self._connection is None:
             return [event.to_dict() for event in self.events]
+        self._validate_derived_state()
         rows = self._connection.execute(
             "SELECT event_type, client_order_id, event_time, details_json FROM execution_events ORDER BY id"
         ).fetchall()
         return [
-            ExecutionEvent(event_type, client_order_id, event_time, json.loads(details_json)).to_dict()
+            ExecutionEvent(event_type, client_order_id, event_time, self._validate_event_payload(event_type, details_json)).to_dict()
             for event_type, client_order_id, event_time, details_json in rows
         ]
 
@@ -488,6 +512,8 @@ class ExecutionLedger:
         sequence: int | None = None,
         **payload,
     ) -> Fill | None:
+        payload = dict(payload)
+        payload.pop("fill", None)
         fill = self.create_fill(symbol=symbol, client_order_id=client_order_id, side=side, quantity=quantity, price=price, event_time=event_time, fill_id=fill_id, exchange=exchange, order_id=order_id, fee=fee, fee_currency=fee_currency, source=source, sequence=sequence)
         resolved_id = fill.fill_id
         if resolved_id in self.fills:
