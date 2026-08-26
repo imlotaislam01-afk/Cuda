@@ -170,6 +170,9 @@ class ExecutionLedger:
             target.close()
 
     def _initialize_schema(self) -> None:
+        self._connection.execute("PRAGMA journal_mode=WAL")
+        self._connection.execute("PRAGMA synchronous=FULL")
+        self._connection.execute("PRAGMA busy_timeout=5000")
         self._connection.execute(
             "CREATE TABLE IF NOT EXISTS execution_events ("
             "id INTEGER PRIMARY KEY AUTOINCREMENT, event_type TEXT NOT NULL, "
