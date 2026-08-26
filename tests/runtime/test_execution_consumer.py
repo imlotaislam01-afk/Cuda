@@ -1,6 +1,6 @@
 import asyncio
 
-from brain.execution import ExecutionOutcome
+from brain.execution import ExecutionConfig, ExecutionMode, ExecutionOutcome, OrderRequest
 from brain.runtime.execution_consumer import ExecutionConsumer
 from tests.execution.test_p3_foundation import intent
 
@@ -128,6 +128,38 @@ def test_execution_consumer_does_not_requeue_intent_with_durable_order(tmp_path)
         await asyncio.sleep(0)
         assert coordinator.calls == 0
         assert consumer.queue.empty()
+        await consumer.stop()
+
+    asyncio.run(scenario())
+
+
+def test_execution_consumer_uses_coordinator_idempotency_domain():
+    class Adapter:
+        exchange = "TESTNET"
+
+    class Config:
+        mode = ExecutionMode.TESTNET
+
+    class ConfiguredCoordinator(Coordinator):
+        adapter = Adapter()
+        config = Config()
+
+    consumer = ExecutionConsumer(ConfiguredCoordinator())
+    value = intent()
+    expected = OrderRequest.from_intent(value, exchange="TESTNET", mode=ExecutionMode.TESTNET).client_order_id
+    assert consumer._client_order_id(value) == expected
+
+
+def test_execution_consumer_allows_one_of_100_identical_submissions():
+    async def scenario():
+        coordinator = Coordinator()
+        consumer = ExecutionConsumer(coordinator)
+        await consumer.start()
+        value = intent()
+        results = await asyncio.gather(*(consumer.submit(value) for _ in range(100)))
+        await consumer.queue.join()
+        assert sum(results) == 1
+        assert coordinator.calls == 1
         await consumer.stop()
 
     asyncio.run(scenario())

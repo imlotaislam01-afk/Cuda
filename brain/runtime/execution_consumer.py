@@ -4,7 +4,7 @@ import asyncio
 import time
 from typing import Any
 
-from brain.execution import ExecutionIntent, ExecutionOutcome, ExecutionLedger, OrderRequest
+from brain.execution import ExecutionIntent, ExecutionMode, ExecutionOutcome, ExecutionLedger, OrderRequest
 
 
 class ExecutionConsumer:
@@ -35,9 +35,13 @@ class ExecutionConsumer:
         self._task = asyncio.create_task(self._consume(), name="apex-execution-consumer")
         return True
 
-    @staticmethod
-    def _client_order_id(intent: Any) -> str:
-        return OrderRequest.from_intent(intent).client_order_id
+    def _client_order_id(self, intent: Any) -> str:
+        config = getattr(self.coordinator, "config", None)
+        exchange = getattr(getattr(self.coordinator, "adapter", None), "exchange", "PAPER")
+        mode = getattr(config, "mode", "PAPER")
+        if isinstance(mode, str):
+            mode = ExecutionMode(mode.upper())
+        return OrderRequest.from_intent(intent, exchange=exchange, mode=mode).client_order_id
 
     def _recover_persisted_intents(self) -> None:
         if self.ledger is None:
