@@ -244,7 +244,22 @@ class ExecutionLedger:
         value = f"{client_order_id}|{quantity:.16g}|{price:.16g}|{event_time:.16g}|{sequence}"
         return "fill-" + hashlib.sha256(value.encode()).hexdigest()[:24]
 
+    @staticmethod
+    def _redact_details(value: Any) -> Any:
+        sensitive = {"api_key", "api_secret", "password", "secret", "token", "authorization"}
+        if isinstance(value, dict):
+            return {
+                key: "[REDACTED]" if str(key).lower() in sensitive else ExecutionLedger._redact_details(item)
+                for key, item in value.items()
+            }
+        if isinstance(value, list):
+            return [ExecutionLedger._redact_details(item) for item in value]
+        if isinstance(value, tuple):
+            return tuple(ExecutionLedger._redact_details(item) for item in value)
+        return value
+
     def record(self, event_type: str, *, client_order_id: str | None = None, event_time: float = 0.0, **details) -> ExecutionEvent:
+        details = self._redact_details(details)
         event = ExecutionEvent(event_type, client_order_id, event_time, details)
         self.events.append(event)
         if self._connection is not None:

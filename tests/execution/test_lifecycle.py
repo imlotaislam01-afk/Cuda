@@ -183,6 +183,22 @@ def test_critical_ledger_events_notify_without_leaking_details():
     assert "secret" not in repr(alerts[0])
 
 
+def test_ledger_does_not_persist_sensitive_event_details():
+    ledger = ExecutionLedger()
+    ledger.record(
+        "AUDIT",
+        event_time=1,
+        credentials={"api_key": "key", "api_secret": "secret"},
+        nested={"token": "bearer-token", "safe": "value"},
+    )
+
+    details = ledger.snapshot()[0]["details"]
+    assert details == {
+        "credentials": {"api_key": "[REDACTED]", "api_secret": "[REDACTED]"},
+        "nested": {"token": "[REDACTED]", "safe": "value"},
+    }
+
+
 def test_alert_listener_failure_does_not_break_durable_event():
     def failing_listener(_event):
         raise RuntimeError("alert unavailable")
