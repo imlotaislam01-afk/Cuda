@@ -29,8 +29,8 @@ class EngineSupervisor:
         self.state = LifecycleState.STARTING
         self.health = RuntimeHealth()
         self.ledger = ledger or ExecutionLedger(self.config.state_db_path)
-        self.recovery_manager = RecoveryManager(self.ledger)
         self.coordinator = coordinator or self._build_coordinator()
+        self.recovery_manager = RecoveryManager(self.ledger, self.coordinator.adapter)
 
     def _build_coordinator(self) -> ExecutionCoordinator:
         if getattr(self.config.mode, "value", self.config.mode) != RuntimeMode.PAPER.value:
@@ -55,6 +55,8 @@ class EngineSupervisor:
             self.state = LifecycleState.DEGRADED
             self.health.lifecycle_state = self.state
             self.health.reconciliation_ok = False
+            self.health.exchange_ok = False
+            self.health.account_ok = False
             return False
         self.state = LifecycleState.READY
         self.health.lifecycle_state = self.state
