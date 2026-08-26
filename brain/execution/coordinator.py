@@ -79,6 +79,19 @@ class ExecutionCoordinator:
             if existing is not None:
                 return ExecutionOutcome("DUPLICATE", existing, "DUPLICATE_INTENT")
             return ExecutionOutcome("REJECTED", reason="AMBIGUOUS_RETRY_REQUIRES_RECONCILIATION")
+        durable = self.ledger.load_order(order.client_order_id)
+        if durable is not None:
+            existing = self.adapter.get_order(order.client_order_id)
+            if existing is not None:
+                return ExecutionOutcome("DUPLICATE", existing, "DUPLICATE_INTENT")
+            self.ledger.record_reconciliation(
+                order.symbol,
+                status="UNKNOWN",
+                details={"client_order_id": order.client_order_id, "reason": "DURABLE_ORDER_NOT_REMOTE"},
+                event_time=now,
+            )
+            self.recovery_state = "RECOVERY"
+            return ExecutionOutcome("REJECTED", reason="RECOVERY_REQUIRED")
         if not self.adapter.health_check():
             return self._reject(intent.symbol, "EXCHANGE_UNAVAILABLE", now)
         try:
