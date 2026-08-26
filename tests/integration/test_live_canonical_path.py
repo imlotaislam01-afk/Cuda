@@ -1,3 +1,4 @@
+from brain.execution import ExecutionConfig, ExecutionCoordinator, ExecutionLedger, ExecutionMode, PaperExecutionAdapter
 from brain.pipeline import ApexBrainPipeline
 from brain.risk import RiskConfig, RiskGate
 from market.integration.live_snapshot import LiveMarketSnapshot
@@ -122,3 +123,33 @@ def test_future_orderbook_is_incomplete_and_cannot_create_intent():
     assert result.context.order_book is None
     assert result.context.data_quality.status == "DATA_INCOMPLETE"
     assert result.intent is None
+
+
+def test_live_market_data_reaches_execution_coordinator_and_durable_protection(tmp_path):
+    pipeline = ApexBrainPipeline(RiskGate(RiskConfig(minimum_confidence=20)))
+    pipeline.decision.minimum_confidence = 20
+    snapshot = LiveMarketSnapshot("BTCUSDT")
+    for message in _feed_events():
+        snapshot.feed._process_message(message, received_time=message["ts"] / 1000)
+
+    result = snapshot.run_pipeline(pipeline, calculation_time=13, as_of=11)
+    assert result.intent is not None
+
+    ledger = ExecutionLedger(str(tmp_path / "canonical.sqlite3"))
+    coordinator = ExecutionCoordinator(
+        PaperExecutionAdapter(),
+        ExecutionConfig(mode=ExecutionMode.PAPER, state_db_path=str(tmp_path / "canonical.sqlite3")),
+        ledger,
+    )
+    outcome = coordinator.submit_intent(result.intent, as_of=result.context.event_time, now=13)
+
+    assert outcome.status == "SUBMITTED"
+    assert outcome.order is not None
+    assert outcome.order.status.value == "FILLED"
+    assert ledger.filled_quantity(outcome.order.client_order_id) == outcome.order.quantity
+    protections = ledger.load_protections(outcome.order.client_order_id)
+    assert len(protections) >= 2
+    assert all(protection.status in {"NEW", "ACKNOWLEDGED"} for protection in protections)
+    assert ledger.recovery_state == "READY"
+    event_types = {event["event_type"] for event in ledger.snapshot()}
+    assert {"EXECUTION_APPROVED", "ORDER_SUBMITTED", "FILLED"}.issubset(event_types)
