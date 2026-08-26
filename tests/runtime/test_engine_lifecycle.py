@@ -10,13 +10,16 @@ from tests.execution.test_p3_foundation import intent
 
 
 class RuntimeComponent:
-    def __init__(self, name, events, ready=True):
+    def __init__(self, name, events, ready=True, state_reader=None):
         self.name = name
         self.events = events
         self.ready = ready
+        self.state_reader = state_reader
         self.running = False
 
     async def start(self):
+        if self.state_reader is not None:
+            assert self.state_reader() is LifecycleState.READY
         self.events.append(f"start:{self.name}")
         self.running = True
         return True
@@ -88,6 +91,8 @@ def test_engine_supervisor_owns_ordered_runtime_components():
             reconciliation_service=components[3],
             dashboard=components[4],
         )
+        for component in components:
+            component.state_reader = lambda supervisor=supervisor: supervisor.state
 
         assert await supervisor.start_runtime() is True
         assert supervisor.state is LifecycleState.RUNNING

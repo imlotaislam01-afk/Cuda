@@ -71,7 +71,7 @@ class EngineSupervisor:
             return
         self.ledger.record(event_type, event_time=0.0, **(details or {}))
 
-    def start(self) -> bool:
+    def start(self, *, activate: bool = True) -> bool:
         if self.state in {LifecycleState.READY, LifecycleState.RUNNING}:
             return False
         if self.state is LifecycleState.STOPPING:
@@ -90,6 +90,8 @@ class EngineSupervisor:
         self.state = LifecycleState.READY
         self.health.lifecycle_state = self.state
         self._record_lifecycle("RUNTIME_READY", {"state": self.state.value})
+        if not activate:
+            return True
         self.state = LifecycleState.RUNNING
         self.health.lifecycle_state = self.state
         self._record_lifecycle("RUNTIME_RUNNING", {"state": self.state.value})
@@ -102,7 +104,7 @@ class EngineSupervisor:
 
     async def start_runtime(self) -> bool:
         """Start all injected runtime subsystems under one lifecycle owner."""
-        if not self.start():
+        if not self.start(activate=False):
             return False
         if self.brain_loop is not None and self.execution_consumer is not None and hasattr(self.brain_loop, "result_handler"):
             async def handle_result(result: Any) -> None:
@@ -120,6 +122,9 @@ class EngineSupervisor:
                 started.append(component)
                 if not self._component_ready(component):
                     raise RuntimeError(f"{name} is not ready")
+            self.state = LifecycleState.RUNNING
+            self.health.lifecycle_state = self.state
+            self._record_lifecycle("RUNTIME_RUNNING", {"state": self.state.value})
             self._record_lifecycle("RUNTIME_COMPONENTS_READY", {"state": self.state.value})
             return True
         except Exception as exc:
