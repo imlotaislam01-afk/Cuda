@@ -20,19 +20,27 @@ class DashboardManager:
         if self.running:
             return False
         try:
-            self.thread = Thread(target=self.http_server.serve_forever, name="apex-dashboard-http")
+            self.failed = False
+            self.failure = None
+            self.thread = Thread(target=self._serve_http, name="apex-dashboard-http")
+            self.running = True
             self.thread.start()
             if self.websocket_server is not None:
                 await self.websocket_server.start()
-            self.running = True
-            self.failed = False
-            self.failure = None
             return True
         except BaseException as exc:
             self.failed = True
             self.failure = exc
             await self.stop()
             return False
+
+    def _serve_http(self) -> None:
+        try:
+            self.http_server.serve_forever()
+        except BaseException as exc:
+            self.failed = True
+            self.failure = exc
+            self.running = False
 
     @property
     def ready(self) -> bool:
