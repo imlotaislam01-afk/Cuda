@@ -134,6 +134,9 @@ class EngineSupervisor:
                     raise RuntimeError(f"{name} failed to start")
                 started.append(component)
                 await self._wait_component_ready(name, component, readiness_timeout)
+                if name == "reconciliation" and hasattr(component, "reconcile_once"):
+                    if not await component.reconcile_once():
+                        raise RuntimeError("initial reconciliation failed")
             self.state = LifecycleState.RUNNING
             self.health.lifecycle_state = self.state
             self._record_lifecycle("RUNTIME_RUNNING", {"state": self.state.value})

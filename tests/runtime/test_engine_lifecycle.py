@@ -42,6 +42,11 @@ class ShutdownComponent:
         self.events.append("signals:remove")
 
 
+class FailedReconciliationComponent(RuntimeComponent):
+    async def reconcile_once(self):
+        return False
+
+
 def test_engine_supervisor_starts_in_paper_mode_and_reports_runtime_state():
     config = RuntimeConfig(mode=ExecutionMode.PAPER)
     supervisor = EngineSupervisor(config=config)
@@ -181,3 +186,17 @@ def test_sync_stop_delegates_to_owned_runtime_components():
     assert supervisor.stop() is True
     assert events == ["start:market", "stop:market"]
     assert supervisor.state is LifecycleState.STOPPED
+
+
+def test_runtime_requires_initial_reconciliation_before_running():
+    async def scenario():
+        events = []
+        reconciliation = FailedReconciliationComponent("reconciliation", events)
+        supervisor = EngineSupervisor(config=RuntimeConfig(), reconciliation_service=reconciliation)
+
+        assert await supervisor.start_runtime() is False
+        assert supervisor.state is LifecycleState.DEGRADED
+        assert supervisor.execution_allowed is False
+        assert events == ["start:reconciliation", "stop:reconciliation"]
+
+    asyncio.run(scenario())
