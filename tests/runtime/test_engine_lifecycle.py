@@ -37,3 +37,18 @@ def test_runtime_recovery_blocks_execution_until_reconciliation_is_conclusive():
     assert supervisor.state == LifecycleState.STARTING
     assert supervisor.recovery_manager.is_recovery_required() is True
     assert supervisor.health.execution_ready is False
+
+
+def test_engine_supervisor_emits_durable_lifecycle_observability():
+    config = RuntimeConfig(mode=ExecutionMode.PAPER)
+    supervisor = EngineSupervisor(config=config)
+    assert supervisor.start() is True
+    snapshot = supervisor.ledger.snapshot()
+    event_names = {event["event_type"] for event in snapshot}
+    assert "RUNTIME_START" in event_names
+    assert "RUNTIME_RECOVERY" in event_names
+    assert "RUNTIME_READY" in event_names
+    assert "RUNTIME_RUNNING" in event_names
+    supervisor.stop()
+    assert any(event["event_type"] == "RUNTIME_STOPPING" for event in supervisor.ledger.snapshot())
+    assert any(event["event_type"] == "RUNTIME_STOPPED" for event in supervisor.ledger.snapshot())
