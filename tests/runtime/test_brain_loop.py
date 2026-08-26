@@ -41,6 +41,8 @@ def test_brain_loop_isolates_pipeline_errors():
         await loop.queue.join()
         assert loop.failed is True
         assert loop.last_error is not None
+        assert loop.running is False
+        assert await loop.submit(Context()) is False
         await loop.stop()
 
     asyncio.run(scenario())

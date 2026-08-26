@@ -62,6 +62,8 @@ class BrainLoop:
             except Exception as exc:
                 self.failed = True
                 self.last_error = exc
+                self.running = False
+                return
             finally:
                 self.queue.task_done()
 

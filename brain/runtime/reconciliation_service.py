@@ -15,6 +15,7 @@ class ReconciliationService:
         self.interval_seconds = interval_seconds
         self.clock = clock
         self.running = False
+        self.failed = False
         self.healthy = False
         self.last_error: BaseException | None = None
         self.last_result: Any | None = None
@@ -24,6 +25,7 @@ class ReconciliationService:
         if self.running:
             return False
         self.running = True
+        self.failed = False
         self.healthy = False
         self.last_error = None
         self._task = asyncio.create_task(self._run(), name="apex-reconciliation")
@@ -60,9 +62,17 @@ class ReconciliationService:
             return False
 
     async def _run(self) -> None:
-        while self.running:
-            await self.reconcile_once()
-            await asyncio.sleep(self.interval_seconds)
+        try:
+            while self.running:
+                await self.reconcile_once()
+                await asyncio.sleep(self.interval_seconds)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            self.failed = True
+            self.last_error = exc
+            self.healthy = False
+            self.running = False
 
     async def stop(self) -> bool:
         if self._task is None:

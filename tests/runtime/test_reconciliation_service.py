@@ -27,3 +27,21 @@ def test_reconciliation_service_fails_closed_on_remote_failure():
         assert coordinator.recovery_state == "RECOVERY"
 
     asyncio.run(scenario())
+
+
+def test_reconciliation_worker_records_unexpected_failure():
+    async def scenario():
+        class BrokenAdapter(PaperExecutionAdapter):
+            def get_positions(self):
+                raise OSError("unexpected reconciliation failure")
+
+        coordinator = ExecutionCoordinator(BrokenAdapter())
+        service = ReconciliationService(coordinator)
+        await service.start()
+        await service._task
+        assert service.failed is True
+        assert isinstance(service.last_error, OSError)
+        assert service.running is False
+        await service.stop()
+
+    asyncio.run(scenario())

@@ -15,6 +15,8 @@ class ExecutionConsumer:
         self.coordinator = coordinator
         self.queue: asyncio.Queue[tuple[Any, float | None, float]] = asyncio.Queue(maxsize=max_queue_size)
         self.running = False
+        self.failed = False
+        self.last_error: BaseException | None = None
         self._task: asyncio.Task | None = None
         self._seen: set[str] = set()
         self.outcomes: list[ExecutionOutcome] = []
@@ -23,6 +25,8 @@ class ExecutionConsumer:
         if self.running:
             return False
         self.running = True
+        self.failed = False
+        self.last_error = None
         self._task = asyncio.create_task(self._consume(), name="apex-execution-consumer")
         return True
 
@@ -44,6 +48,13 @@ class ExecutionConsumer:
             intent, as_of, now = await self.queue.get()
             try:
                 self.outcomes.append(self.coordinator.submit_intent(intent, as_of=as_of, now=now))
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                self.failed = True
+                self.last_error = exc
+                self.running = False
+                return
             finally:
                 self.queue.task_done()
 
