@@ -45,6 +45,9 @@ class ExecutionConsumer:
         recoverable = self.ledger.load_intents(("CREATED", "PERSISTED", "QUEUED", "RECOVERED", "PROCESSING", "APPROVED"))
         for state in recoverable:
             try:
+                if self.ledger.load_order(state.client_order_id) is not None:
+                    self.ledger.update_intent_status(state.client_order_id, "UNKNOWN")
+                    continue
                 intent = ExecutionIntent.from_dict(state.payload)
                 if not intent.approved:
                     self.ledger.update_intent_status(state.client_order_id, "REJECTED")

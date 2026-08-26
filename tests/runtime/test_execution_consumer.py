@@ -112,6 +112,27 @@ def test_execution_consumer_marks_malformed_persisted_intent_failed(tmp_path):
     asyncio.run(scenario())
 
 
+def test_execution_consumer_does_not_requeue_intent_with_durable_order(tmp_path):
+    async def scenario():
+        from brain.execution import ExecutionLedger, OrderRequest
+
+        ledger = ExecutionLedger(str(tmp_path / "submitted.sqlite3"))
+        value = intent()
+        order = OrderRequest.from_intent(value)
+        ledger.persist_intent(value, client_order_id=order.client_order_id, status="PROCESSING", created_at=1.0)
+        ledger.persist_order(order)
+        coordinator = Coordinator()
+        consumer = ExecutionConsumer(coordinator, ledger=ledger)
+
+        await consumer.start()
+        await asyncio.sleep(0)
+        assert coordinator.calls == 0
+        assert consumer.queue.empty()
+        await consumer.stop()
+
+    asyncio.run(scenario())
+
+
 def test_execution_consumer_deduplicates_and_does_not_retry_unknown():
     async def scenario():
         coordinator = Coordinator()
