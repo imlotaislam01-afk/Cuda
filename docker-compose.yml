@@ -1,0 +1,13 @@
+services:
+  apex-engine:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: apex_trading_engine
+    restart: unless-stopped
+    environment:
+      - APEX_ENV=PAPER
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
