@@ -11,8 +11,10 @@ COPY pyproject.toml .
 COPY brain/ brain/
 COPY market/ market/
 COPY config/ config/
+COPY tests/ tests/
 
 RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir pytest && \
     pip install --no-cache-dir -e .
 
 RUN mkdir -p /app/data /app/logs
